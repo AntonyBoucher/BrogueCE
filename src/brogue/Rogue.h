@@ -2602,6 +2602,7 @@ typedef struct buttonState {
 } buttonState;
 
 extern boolean serverMode;
+extern boolean inTitleMenu;
 extern boolean hasGraphics;
 extern boolean graphicsEnabled;
 
