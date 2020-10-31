@@ -1340,6 +1340,12 @@ void getCellAppearance(short x, short y, enum displayGlyph *returnChar, color *r
         cellChar = G_WALL_TOP;
     }
 
+    // If the tile below hasn't been discovered, show granite intead of brick
+    if (cellChar == G_WALL && !(coordinatesAreInMap(x, y+1) && pmap[x][y+1].layers[DUNGEON] != GRANITE
+                                && ((pmap[x][y+1].flags & DISCOVERED) || rogue.playbackOmniscience))) {
+        cellChar = G_GRANITE;
+    }
+
     if (((pmap[x][y].flags & ITEM_DETECTED) || monsterWithDetectedItem
          || (monst && monsterRevealed(monst)))
         && !playerCanSeeOrSense(x, y)) {
