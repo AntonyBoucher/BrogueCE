@@ -14,7 +14,7 @@ struct keypair {
 };
 
 extern SDL_Window *Win;
-extern SDL_Surface *WinSurf;
+extern SDL_Renderer *Renderer;
 
 static struct keypair remapping[MAX_REMAPS];
 static size_t nremaps = 0;
@@ -163,7 +163,7 @@ static boolean pollBrogueEvent(rogueEvent *returnEvent, boolean textInput) {
             returnEvent->eventType = KEYSTROKE;
             returnEvent->param1 = ESCAPE_KEY;
             return true;
-        } else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+        } else if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED) {
             resizeWindow(event.window.data1, event.window.data2);
         } else if (event.type == SDL_KEYDOWN) {
             SDL_Keycode key = event.key.keysym.sym;
@@ -176,10 +176,8 @@ static boolean pollBrogueEvent(rogueEvent *returnEvent, boolean textInput) {
                 continue;
             } else if (key == SDLK_F11 || key == SDLK_F12
                     || key == SDLK_RETURN && (SDL_GetModState() & KMOD_ALT)) {
-                SDL_DisplayMode mode;
-                SDL_GetCurrentDisplayMode(0, &mode);
-                int targetSize = (windowWidth == mode.w && windowHeight == mode.h ? 0 : INT_MAX);
-                resizeWindow(targetSize, targetSize);
+                fullScreen = !fullScreen;
+                resizeWindow(windowWidth * 7/10, windowHeight * 7/10);
                 continue;
             }
 
@@ -281,7 +279,7 @@ static void _gameLoop() {
 
 
 static boolean _pauseForMilliseconds(short ms) {
-    SDL_UpdateWindowSurface(Win);
+    SDL_RenderPresent(Renderer);
     SDL_Delay(ms);
 
     if (lastEvent.eventType != EVENT_ERROR
@@ -298,7 +296,7 @@ static boolean _pauseForMilliseconds(short ms) {
 static void _nextKeyOrMouseEvent(rogueEvent *returnEvent, boolean textInput, boolean colorsDance) {
     long tstart, dt;
 
-    SDL_UpdateWindowSurface(Win);
+    SDL_RenderPresent(Renderer);
 
     if (lastEvent.eventType != EVENT_ERROR) {
         *returnEvent = lastEvent;
@@ -314,7 +312,7 @@ static void _nextKeyOrMouseEvent(rogueEvent *returnEvent, boolean textInput, boo
             commitDraws();
         }
 
-        SDL_UpdateWindowSurface(Win);
+        SDL_RenderPresent(Renderer);
 
         if (pollBrogueEvent(returnEvent, textInput)) break;
 
@@ -381,30 +379,33 @@ static void _plotChar(
     short foreRed, short foreGreen, short foreBlue,
     short backRed, short backGreen, short backBlue
 ) {
-    SDL_Surface *tiles;
+    SDL_Texture *texture;
     SDL_Rect src, dest;
 
     inputChar = fontIndex(inputChar);
 
-    dest.x = x * windowWidth / COLS;
-    dest.y = y * windowHeight / ROWS;
-    dest.w = (x+1) * windowWidth / COLS - dest.x;
-    dest.h = (y+1) * windowHeight / ROWS - dest.y;
+    int outputWidth = 0;
+    int outputHeight = 0;
+    SDL_GetRendererOutputSize(Renderer, &outputWidth, &outputHeight);
 
-    tiles = getTiles(dest.w, dest.h);
-    if (!tiles) return;
+    dest.x = x * outputWidth / COLS;
+    dest.y = y * outputHeight / ROWS;
+    dest.w = (x+1) * outputWidth / COLS - dest.x;
+    dest.h = (y+1) * outputHeight / ROWS - dest.y;
+
+    texture = getTexture(dest.w, dest.h);
+    if (!texture) return;
 
     src.x = (inputChar % 16) * dest.w;
     src.y = (inputChar / 16) * dest.h;
     src.w = dest.w;
     src.h = dest.h;
 
-    prepareTile(tiles, inputChar / 16, inputChar % 16, false);
-    SDL_FillRect(WinSurf, &dest, SDL_MapRGB(
-        WinSurf->format, backRed * 255 / 100, backGreen * 255 / 100, backBlue * 255 / 100
-    ));
-    SDL_SetSurfaceColorMod(tiles, foreRed * 255 / 100, foreGreen * 255 / 100, foreBlue * 255 / 100);
-    SDL_BlitSurface(tiles, &src, WinSurf, &dest);
+    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(Renderer, backRed * 255 / 100, backGreen * 255 / 100, backBlue * 255 / 100, 255);
+    SDL_RenderFillRect(Renderer, &dest);
+    SDL_SetTextureColorMod(texture, foreRed * 255 / 100, foreGreen * 255 / 100, foreBlue * 255 / 100);
+    SDL_RenderCopy(Renderer, texture, &src, &dest);
 }
 
 
@@ -426,8 +427,14 @@ static boolean _takeScreenshot() {
     getAvailableFilePath(screenshotFilepath, "Screenshot", SCREENSHOT_SUFFIX);
     strcat(screenshotFilepath, SCREENSHOT_SUFFIX);
 
-    if (WinSurf) {
-        IMG_SavePNG(WinSurf, screenshotFilepath);
+    if (Renderer) {
+        int outputWidth = 0;
+        int outputHeight = 0;
+        SDL_GetRendererOutputSize(Renderer, &outputWidth, &outputHeight);
+        SDL_Surface *screenshot = SDL_CreateRGBSurfaceWithFormat(0, outputWidth, outputHeight, 32, SDL_PIXELFORMAT_RGBA32);
+        SDL_RenderReadPixels(Renderer, NULL, SDL_PIXELFORMAT_RGBA32, screenshot->pixels, outputWidth * 4);
+        IMG_SavePNG(screenshot, screenshotFilepath);
+        SDL_FreeSurface(screenshot);
         return true;
     }
     return false;
@@ -436,7 +443,10 @@ static boolean _takeScreenshot() {
 
 static boolean _setGraphicsEnabled(boolean state) {
     showGraphics = state;
-    if (WinSurf) refreshScreen();
+    if (Win) {
+        refreshScreen();
+        SDL_RenderPresent(Renderer);
+    }
     return state;
 }
 

@@ -178,7 +178,7 @@ int main(int argc, char *argv[])
         if (strcmp(argv[i], "--size") == 0) {
             if (i + 1 < argc) {
                 int size = atoi(argv[i + 1]);
-                if (size > 0 && size <= 20 && windowWidth != INT_MAX) {
+                if (size > 0 && size <= 20) {
                     windowWidth = round(pow(1.1, size) * 620.);
                     windowHeight = windowWidth * 9/16;
                 };
@@ -189,7 +189,7 @@ int main(int argc, char *argv[])
         }
 
         if (strcmp(argv[i], "-F") == 0 || strcmp(argv[i], "--full-screen") == 0) {
-            windowWidth = windowHeight = INT_MAX;
+            fullScreen = true;
             continue;
         }
 #endif
