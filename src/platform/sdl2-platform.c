@@ -14,7 +14,6 @@ struct keypair {
 };
 
 extern SDL_Window *Win;
-extern SDL_Renderer *Renderer;
 
 static struct keypair remapping[MAX_REMAPS];
 static size_t nremaps = 0;
@@ -279,7 +278,7 @@ static void _gameLoop() {
 
 
 static boolean _pauseForMilliseconds(short ms) {
-    SDL_RenderPresent(Renderer);
+    updateScreen();
     SDL_Delay(ms);
 
     if (lastEvent.eventType != EVENT_ERROR
@@ -296,7 +295,7 @@ static boolean _pauseForMilliseconds(short ms) {
 static void _nextKeyOrMouseEvent(rogueEvent *returnEvent, boolean textInput, boolean colorsDance) {
     long tstart, dt;
 
-    SDL_RenderPresent(Renderer);
+    updateScreen();
 
     if (lastEvent.eventType != EVENT_ERROR) {
         *returnEvent = lastEvent;
@@ -312,7 +311,7 @@ static void _nextKeyOrMouseEvent(rogueEvent *returnEvent, boolean textInput, boo
             commitDraws();
         }
 
-        SDL_RenderPresent(Renderer);
+        updateScreen();
 
         if (pollBrogueEvent(returnEvent, textInput)) break;
 
@@ -379,33 +378,9 @@ static void _plotChar(
     short foreRed, short foreGreen, short foreBlue,
     short backRed, short backGreen, short backBlue
 ) {
-    SDL_Texture *texture;
-    SDL_Rect src, dest;
-
-    inputChar = fontIndex(inputChar);
-
-    int outputWidth = 0;
-    int outputHeight = 0;
-    SDL_GetRendererOutputSize(Renderer, &outputWidth, &outputHeight);
-
-    dest.x = x * outputWidth / COLS;
-    dest.y = y * outputHeight / ROWS;
-    dest.w = (x+1) * outputWidth / COLS - dest.x;
-    dest.h = (y+1) * outputHeight / ROWS - dest.y;
-
-    texture = getTexture(dest.w, dest.h);
-    if (!texture) return;
-
-    src.x = (inputChar % 16) * dest.w;
-    src.y = (inputChar / 16) * dest.h;
-    src.w = dest.w;
-    src.h = dest.h;
-
-    SDL_SetRenderDrawBlendMode(Renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(Renderer, backRed * 255 / 100, backGreen * 255 / 100, backBlue * 255 / 100, 255);
-    SDL_RenderFillRect(Renderer, &dest);
-    SDL_SetTextureColorMod(texture, foreRed * 255 / 100, foreGreen * 255 / 100, foreBlue * 255 / 100);
-    SDL_RenderCopy(Renderer, texture, &src, &dest);
+    updateTile(y, x, fontIndex(inputChar),
+        foreRed, foreGreen, foreBlue,
+        backRed, backGreen, backBlue);
 }
 
 
@@ -422,31 +397,37 @@ static void _remap(const char *from, const char *to) {
  * Take screenshot in current working directory (ScreenshotN.png)
  */
 static boolean _takeScreenshot() {
-    char screenshotFilepath[BROGUE_FILENAME_MAX];
+    // get the renderer
+    if (!Win) return false;
+    SDL_Renderer *renderer = SDL_GetRenderer(Win);
+    if (!renderer) return false;
 
+    // get its size
+    int outputWidth = 0;
+    int outputHeight = 0;
+    SDL_GetRendererOutputSize(renderer, &outputWidth, &outputHeight);
+
+    // take a screenshot
+    SDL_Surface *screenshot = SDL_CreateRGBSurfaceWithFormat(0, outputWidth, outputHeight, 32, SDL_PIXELFORMAT_RGBA32);
+    SDL_RenderReadPixels(renderer, NULL, SDL_PIXELFORMAT_RGBA32, screenshot->pixels, outputWidth * 4);
+
+    // choose filename
+    char screenshotFilepath[BROGUE_FILENAME_MAX];
     getAvailableFilePath(screenshotFilepath, "Screenshot", SCREENSHOT_SUFFIX);
     strcat(screenshotFilepath, SCREENSHOT_SUFFIX);
 
-    if (Renderer) {
-        int outputWidth = 0;
-        int outputHeight = 0;
-        SDL_GetRendererOutputSize(Renderer, &outputWidth, &outputHeight);
-        SDL_Surface *screenshot = SDL_CreateRGBSurfaceWithFormat(0, outputWidth, outputHeight, 32, SDL_PIXELFORMAT_RGBA32);
-        SDL_RenderReadPixels(Renderer, NULL, SDL_PIXELFORMAT_RGBA32, screenshot->pixels, outputWidth * 4);
-        IMG_SavePNG(screenshot, screenshotFilepath);
-        SDL_FreeSurface(screenshot);
-        return true;
-    }
-    return false;
+    // save to PNG
+    IMG_SavePNG(screenshot, screenshotFilepath);
+    SDL_FreeSurface(screenshot);
+
+    return true;
 }
 
 
 static boolean _setGraphicsEnabled(boolean state) {
     showGraphics = state;
-    if (Win) {
-        refreshScreen();
-        SDL_RenderPresent(Renderer);
-    }
+    refreshScreen();
+    updateScreen();
     return state;
 }
 

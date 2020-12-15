@@ -5,7 +5,10 @@
 #include <SDL_image.h>
 #include "platform.h"
 
-SDL_Texture *getTexture(int tileWidth, int tileHeight);
 void resizeWindow(int width, int height);
+void updateTile(int row, int column, short charIndex,
+    short foreRed, short foreGreen, short foreBlue,
+    short backRed, short backGreen, short backBlue);
+void updateScreen();
 
 #endif

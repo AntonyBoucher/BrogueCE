@@ -27,20 +27,24 @@ static const char TileProcessing[TILE_ROWS][TILE_COLS+1] = {
     "fsssfffffffffffs", "fsffffffffffffff", "ffffssssffssffff", "ffffsfffffssssff"
 };
 
-
-SDL_Window *Win = NULL;
-SDL_Renderer *Renderer = NULL;
+typedef struct ScreenTile {
+    short charIndex;
+    short foreRed, foreGreen, foreBlue;
+    short backRed, backGreen, backBlue;
+} ScreenTile;
 
 static SDL_Surface *TilesPNG;
 static SDL_Texture *Textures[4];
 static int8_t tilePadding[TILE_ROWS][TILE_COLS];
 static int8_t tileShifts[TILE_ROWS][TILE_COLS][2][MAX_TILE_SIZE][3];
 static boolean tileEmpty[TILE_ROWS][TILE_COLS];
+static ScreenTile screenTiles[ROWS][COLS];
+static int baseTileWidth = -1;
+static int baseTileHeight = -1;
 
+SDL_Window *Win = NULL;
 int windowWidth = -1;
 int windowHeight = -1;
-int baseTileWidth = -1;
-int baseTileHeight = -1;
 boolean fullScreen = false;
 
 
@@ -416,7 +420,7 @@ static void init() {
 }
 
 
-static void loadTiles() {
+static void loadTiles(SDL_Renderer *renderer, int outputWidth, int outputHeight) {
     if (TilesPNG == NULL) init();
 
     // The original image will be resized to 4 possible sizes:
@@ -426,10 +430,14 @@ static void loadTiles() {
     //  -  Textures[3]: tiles are (N+1) x (M+1) pixels
     // They will be NULL when either dimension is equal to 0.
 
-    int outputWidth = 0;
-    int outputHeight = 0;
-    SDL_GetRendererOutputSize(Renderer, &outputWidth, &outputHeight);
-    if (baseTileWidth == outputWidth / COLS && baseTileHeight == outputHeight / ROWS) return;
+    static SDL_Renderer *currentRenderer;
+    if (currentRenderer == renderer
+        && baseTileWidth == outputWidth / COLS
+        && baseTileHeight == outputHeight / ROWS) {
+        return;
+    }
+
+    currentRenderer = renderer;
     baseTileWidth = outputWidth / COLS;
     baseTileHeight = outputHeight / ROWS;
 
@@ -453,9 +461,96 @@ static void loadTiles() {
         }
 
         // convert to texture
-        Textures[i] = SDL_CreateTextureFromSurface(Renderer, tiles);
+        Textures[i] = SDL_CreateTextureFromSurface(renderer, tiles);
         SDL_FreeSurface(tiles);
     }
+}
+
+
+SDL_Texture *getTexture(int tileWidth, int tileHeight) {
+    return Textures[(tileWidth > baseTileWidth ? 1 : 0) + (tileHeight > baseTileHeight ? 2 : 0)];
+}
+
+
+void updateTile(int row, int column, short charIndex,
+    short foreRed, short foreGreen, short foreBlue,
+    short backRed, short backGreen, short backBlue)
+{
+    screenTiles[row][column] = (ScreenTile){
+        .charIndex = charIndex,
+        .foreRed = foreRed,
+        .foreGreen = foreGreen,
+        .foreBlue = foreBlue,
+        .backRed = backRed,
+        .backGreen = backGreen,
+        .backBlue = backBlue
+    };
+}
+
+
+void updateScreen() {
+    if (!Win) return;
+
+    SDL_Renderer *renderer = SDL_GetRenderer(Win);
+    if (!renderer) {
+        renderer = SDL_CreateRenderer(Win, -1, 0);
+        if (!renderer) sdlfatal();
+    }
+
+    int outputWidth = 0;
+    int outputHeight = 0;
+    SDL_GetRendererOutputSize(renderer, &outputWidth, &outputHeight);
+    loadTiles(renderer, outputWidth, outputHeight);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
+    SDL_RenderClear(renderer);
+
+    for (int y = 0; y < ROWS; y++) {
+        for (int x = 0; x < COLS; x++) {
+            SDL_Texture *texture;
+            SDL_Rect src, dest;
+            ScreenTile *tile = &screenTiles[y][x];
+            int tileRow = tile->charIndex / 16;
+            int tileColumn = tile->charIndex % 16;
+
+            dest.x = x * outputWidth / COLS;
+            dest.y = y * outputHeight / ROWS;
+            dest.w = (x+1) * outputWidth / COLS - dest.x;
+            dest.h = (y+1) * outputHeight / ROWS - dest.y;
+
+            texture = getTexture(dest.w, dest.h);
+            if (!texture) continue;
+
+            src.x = tileColumn * dest.w;
+            src.y = tileRow * dest.h;
+            src.w = dest.w;
+            src.h = dest.h;
+
+            if (tile->backRed || tile->backGreen || tile->backBlue) {
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+                SDL_SetRenderDrawColor(renderer,
+                    tile->backRed * 255 / 100,
+                    tile->backGreen * 255 / 100,
+                    tile->backBlue * 255 / 100, 255);
+                SDL_RenderFillRect(renderer, &dest);
+            }
+
+            if (!tileEmpty[tileRow][tileColumn]
+                    || tileRow == 16 && tileColumn == 2
+                    || tileRow == 21 && tileColumn == 1
+                    || tileRow == 22 && tileColumn == 4
+                    || tileRow == 20 && tileColumn == 2)
+            {
+                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetTextureColorMod(texture,
+                    tile->foreRed * 255 / 100,
+                    tile->foreGreen * 255 / 100,
+                    tile->foreBlue * 255 / 100);
+                SDL_RenderCopy(renderer, texture, &src, &dest);
+            }
+        }
+    }
+
+    SDL_RenderPresent(renderer);
 }
 
 
@@ -467,7 +562,7 @@ void resizeWindow(int width, int height) {
     SDL_DisplayMode mode;
     SDL_GetCurrentDisplayMode(0, &mode);
 
-    if (width < 0) width = mode.w * 7/10;  // 70% of monitor by default
+    if (width < 0) width = mode.w * 7/10;  // 70% of monitor size by default
     if (height < 0) height = mode.h * 7/10;
     if (width > MAX_TILE_SIZE * COLS) width = MAX_TILE_SIZE * COLS;  // this is large enough for 4K resolution
     if (height > MAX_TILE_SIZE * ROWS) height = MAX_TILE_SIZE * ROWS;
@@ -492,13 +587,6 @@ void resizeWindow(int width, int height) {
         SDL_FreeSurface(icon);
     }
 
-    // create the renderer
-    if (Renderer == NULL) {
-        Renderer = SDL_CreateRenderer(Win, -1, SDL_RENDERER_ACCELERATED);
-        if (!Renderer) Renderer = SDL_CreateRenderer(Win, -1, SDL_RENDERER_SOFTWARE); // fallback
-        if (!Renderer) sdlfatal();
-    }
-
     if (fullScreen) {
         if (!(SDL_GetWindowFlags(Win) & SDL_WINDOW_FULLSCREEN_DESKTOP)) {
             // switch to fullscreen mode
@@ -519,15 +607,6 @@ void resizeWindow(int width, int height) {
         }
     }
 
-    // prepare tiles for window's new resolution
-    Renderer = SDL_GetRenderer(Win);
     SDL_GetWindowSize(Win, &windowWidth, &windowHeight);
-    loadTiles();
-    refreshScreen();
-    SDL_RenderPresent(Renderer);
-}
-
-
-SDL_Texture *getTexture(int tileWidth, int tileHeight) {
-    return Textures[(tileWidth > baseTileWidth ? 1 : 0) + (tileHeight > baseTileHeight ? 2 : 0)];
+    updateScreen();
 }
