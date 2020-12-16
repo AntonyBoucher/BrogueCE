@@ -33,7 +33,7 @@
 #define USE_UNICODE
 
 // Brogue version: what the user sees in the menu and title
-#define BROGUE_VERSION_STRING "CE 1.9.2"
+#define BROGUE_VERSION_STRING "CE 1.9.2 (hi-res)"
 
 // Recording version. Saved into recordings and save files made by this version.
 // Cannot be longer than 16 chars

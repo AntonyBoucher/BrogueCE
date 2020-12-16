@@ -1,3 +1,21 @@
+1.9.2 + High DPI
+================
+
+This is an experimental release of Brogue CE 1.9.2 with high-resolution tiles
+and support for High DPI displays.
+
+Changes
+-------
+-
+  Regenerated tiles from vector graphics to improve quality at all sizes.
+-
+  Added 6 new tiles: vine, net, lichen, glass pipes and 2 new types of altars.
+-
+  The window is now freely resizable, to perfectly fit any monitor up to 4K size.
+-
+  Brogue CE now supports High DPI displays on Windows, Linux and macOS (Retina).
+
+
 1.9.2
 =====
 
