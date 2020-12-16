@@ -169,7 +169,7 @@ static double prepareTile(SDL_Surface *tiles, int row, int column, boolean optim
     stop4 = TILE_WIDTH;
 
     shifts = tileShifts[row][column][0][glyphWidth - 1];
-    map0 = (fitWidth - glyphWidth) / 2;
+    map0 = (fitWidth - glyphWidth + (shifts[0] + shifts[1] < 0 ? 1 : 0)) / 2;
     map1 = map0 + glyphWidth * (double)(stop1 - stop0) / (stop4 - stop0) + shifts[0] * 0.1;
     map2 = map0 + glyphWidth * (double)(stop2 - stop0) / (stop4 - stop0) + shifts[2] * 0.1;
     map3 = map0 + glyphWidth * (double)(stop3 - stop0) / (stop4 - stop0) + shifts[1] * 0.1;
@@ -460,8 +460,13 @@ static void loadTiles(SDL_Renderer *renderer, int outputWidth, int outputHeight)
             }
         }
 
-        // convert to texture
-        Textures[i] = SDL_CreateTextureFromSurface(renderer, tiles);
+        // convert to renderer's preferred format then to texture
+        SDL_RendererInfo info;
+        SDL_GetRendererInfo(renderer, &info);
+        SDL_Surface *converted = SDL_ConvertSurfaceFormat(tiles, info.texture_formats[0], 0);
+        Textures[i] = SDL_CreateTextureFromSurface(renderer, converted);
+        SDL_SetTextureBlendMode(Textures[i], SDL_BLENDMODE_BLEND);
+        SDL_FreeSurface(converted);
         SDL_FreeSurface(tiles);
     }
 }
@@ -501,6 +506,7 @@ void updateScreen() {
     int outputHeight = 0;
     SDL_GetRendererOutputSize(renderer, &outputWidth, &outputHeight);
     loadTiles(renderer, outputWidth, outputHeight);
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
     SDL_RenderClear(renderer);
 
@@ -526,7 +532,6 @@ void updateScreen() {
             src.h = dest.h;
 
             if (tile->backRed || tile->backGreen || tile->backBlue) {
-                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
                 SDL_SetRenderDrawColor(renderer,
                     tile->backRed * 255 / 100,
                     tile->backGreen * 255 / 100,
@@ -535,12 +540,9 @@ void updateScreen() {
             }
 
             if (!tileEmpty[tileRow][tileColumn]
-                    || tileRow == 16 && tileColumn == 2
-                    || tileRow == 21 && tileColumn == 1
-                    || tileRow == 22 && tileColumn == 4
-                    || tileRow == 20 && tileColumn == 2)
+                    || tileRow == 21 && tileColumn == 1  // wall top (procedural)
+                    || tileRow == 20 && tileColumn == 2) // floor (possibly procedural)
             {
-                SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
                 SDL_SetTextureColorMod(texture,
                     tile->foreRed * 255 / 100,
                     tile->foreGreen * 255 / 100,
@@ -608,5 +610,6 @@ void resizeWindow(int width, int height) {
     }
 
     SDL_GetWindowSize(Win, &windowWidth, &windowHeight);
+    refreshScreen();
     updateScreen();
 }
