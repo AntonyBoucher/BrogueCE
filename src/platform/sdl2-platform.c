@@ -3,6 +3,8 @@
 #endif
 
 #include <limits.h>
+#include <SDL_image.h>
+#include "platform.h"
 #include "tiles.h"
 
 #define PAUSE_BETWEEN_EVENT_POLLING     36L//17
@@ -168,10 +170,11 @@ static boolean pollBrogueEvent(rogueEvent *returnEvent, boolean textInput) {
             SDL_Keycode key = event.key.keysym.sym;
 
             if (key == SDLK_PAGEUP) {
-                resizeWindow(windowWidth * 11/10, windowHeight * 11/10);
+                resizeWindow(max(windowWidth * 11/10, windowWidth + 1), max(windowHeight * 11/10, windowHeight + 1));
                 continue;
             } else if (key == SDLK_PAGEDOWN) {
-                resizeWindow(windowWidth * 10/11, windowHeight * 10/11);
+                fullScreen = false;
+                resizeWindow(max(windowWidth * 10/11, 1), max(windowHeight * 10/11, 1));
                 continue;
             } else if (key == SDLK_F11 || key == SDLK_F12
                     || key == SDLK_RETURN && (SDL_GetModState() & KMOD_ALT)) {
@@ -197,9 +200,10 @@ static boolean pollBrogueEvent(rogueEvent *returnEvent, boolean textInput) {
             if (!textInput) {
                 c = applyRemaps(c);
                 if (c == '=' || c == '+') {
-                    resizeWindow(windowWidth * 11/10, windowHeight * 11/10);
+                    resizeWindow(max(windowWidth * 11/10, windowWidth + 1), max(windowHeight * 11/10, windowHeight + 1));
                 } else if (c == '-') {
-                    resizeWindow(windowWidth * 10/11, windowHeight * 10/11);
+                    fullScreen = false;
+                    resizeWindow(max(windowWidth * 10/11, 1), max(windowHeight * 10/11, 1));
                 }
             }
 
@@ -397,19 +401,8 @@ static void _remap(const char *from, const char *to) {
  * Take screenshot in current working directory (ScreenshotN.png)
  */
 static boolean _takeScreenshot() {
-    // get the renderer
-    if (!Win) return false;
-    SDL_Renderer *renderer = SDL_GetRenderer(Win);
-    if (!renderer) return false;
-
-    // get its size
-    int outputWidth = 0;
-    int outputHeight = 0;
-    SDL_GetRendererOutputSize(renderer, &outputWidth, &outputHeight);
-
-    // take a screenshot
-    SDL_Surface *screenshot = SDL_CreateRGBSurfaceWithFormat(0, outputWidth, outputHeight, 32, SDL_PIXELFORMAT_RGBA32);
-    SDL_RenderReadPixels(renderer, NULL, SDL_PIXELFORMAT_RGBA32, screenshot->pixels, outputWidth * 4);
+    SDL_Surface *screenshot = captureScreen();
+    if (!screenshot) return false;
 
     // choose filename
     char screenshotFilepath[BROGUE_FILENAME_MAX];
