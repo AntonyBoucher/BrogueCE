@@ -24,14 +24,14 @@ static boolean showGraphics = false;
 static rogueEvent lastEvent;
 
 
-static void sdlfatal() {
-    fprintf(stderr, "Fatal SDL error: %s\n", SDL_GetError());
+static void sdlfatal(char *file, int line) {
+    fprintf(stderr, "Fatal SDL error (%s:%d): %s\n", file, line, SDL_GetError());
     exit(1);
 }
 
 
-static void imgfatal() {
-    fprintf(stderr, "Fatal SDL_image error: %s\n", IMG_GetError());
+static void imgfatal(char *file, int line) {
+    fprintf(stderr, "Fatal SDL_image error (%s:%d): %s\n", file, line, IMG_GetError());
     exit(1);
 }
 
@@ -266,9 +266,9 @@ static void _gameLoop() {
     free(path);
 #endif
 
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) sdlfatal();
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) sdlfatal(__FILE__, __LINE__);
 
-    if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) imgfatal();
+    if (!(IMG_Init(IMG_INIT_PNG) & IMG_INIT_PNG)) imgfatal(__FILE__, __LINE__);
 
     lastEvent.eventType = EVENT_ERROR;
 
