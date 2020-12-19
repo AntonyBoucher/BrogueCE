@@ -37,6 +37,7 @@ typedef struct ScreenTile {
 
 static SDL_Surface *TilesPNG;
 static SDL_Texture *Textures[4];
+static int numTextures = 0;
 static int8_t tilePadding[TILE_ROWS][TILE_COLS];
 static int8_t tileShifts[TILE_ROWS][TILE_COLS][2][MAX_TILE_SIZE][3];
 static boolean tileEmpty[TILE_ROWS][TILE_COLS];
@@ -109,6 +110,7 @@ static uint64_t noise(uint64_t *state) {
 
 
 static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, int row, int column, boolean optimizing) {
+    int8_t noShifts[3] = {0, 0, 0};
     int padding = tilePadding[row][column];         // how much blank spaces there is at the top and bottom of the source tile
     char processing = TileProcessing[row][column];  // how should this tile be processed?
 
@@ -125,12 +127,12 @@ static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, i
 
     // accumulator for pixel values (linear color space), encoded as
     // 0xCCCCCCCCSSSSSSSS where C is a counter and S is a sum of squares
-    uint64_t values[MAX_TILE_SIZE][MAX_TILE_SIZE];
-    memset(values, 0, sizeof(values));
+    uint64_t *values = malloc(tileWidth * tileHeight * 8);
+    memset(values, 0, tileWidth * tileHeight * 8);
     double blur = 0;
 
     // if the tile is empty, we can skip the downscaling
-    if (isTileEmpty(row, column)) goto downscaled;
+    if (tileEmpty[row][column]) goto downscaled;
 
     // decide how large we can draw the glyph
     if (processing == 's' || optimizing) {
@@ -162,7 +164,7 @@ static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, i
     stop3 = TILE_WIDTH * 4/5; // 80%
     stop4 = TILE_WIDTH;
 
-    shifts = tileShifts[row][column][0][glyphWidth - 1];
+    shifts = (glyphWidth > MAX_TILE_SIZE ? noShifts : tileShifts[row][column][0][glyphWidth - 1]);
     map0 = (fitWidth - glyphWidth + (shifts[0] + shifts[1] < 0 ? 1 : 0)) / 2;
     map1 = map0 + glyphWidth * (double)(stop1 - stop0) / (stop4 - stop0) + shifts[0] * 0.1;
     map2 = map0 + glyphWidth * (double)(stop2 - stop0) / (stop4 - stop0) + shifts[2] * 0.1;
@@ -204,7 +206,7 @@ static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, i
         map1 = map0 + (map2 - map0) / 3;
     }
 
-    shifts = tileShifts[row][column][1][glyphHeight - 1];
+    shifts = (glyphHeight > MAX_TILE_SIZE ? noShifts : tileShifts[row][column][1][glyphHeight - 1]);
     map1 += shifts[0] * 0.1;
     map2 += shifts[2] * 0.1;
     map3 += shifts[1] * 0.1;
@@ -217,32 +219,37 @@ static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, i
     for (int y = stop4; y < TILE_HEIGHT; y++) scaledY[y] = -1; // not mapped
 
     // downscale source tile to accumulator
-    for (int y = 0; y < TILE_HEIGHT; y++) {
-        int targetY = scaledY[y];
-        if (targetY < 0 || targetY >= MAX_TILE_SIZE) continue;
-        uint64_t *target = values[targetY];
-        Uint32 *pixel = TilesPNG->pixels; // each pixel is encoded as 0xffBBGGRR
-        pixel += (column * TILE_WIDTH) + (row * TILE_HEIGHT + y) * PNG_WIDTH;
-        for (int x = 0; x < TILE_WIDTH; x++) {
-            uint64_t value = pixel[x] & 0xffU;
-            target[scaledX[x]] += value * value  // (gamma 2.0)
-                                | 0x100000000U;  // (count = 1)
+    for (int y0 = 0; y0 < TILE_HEIGHT; y0++) {
+        int y1 = scaledY[y0];
+        if (y1 < 0 || y1 >= tileHeight) continue;
+        uint64_t *dst = &values[y1 * tileWidth];
+        Uint32 *src = TilesPNG->pixels; // each pixel is encoded as 0xffBBGGRR
+        src += (column * TILE_WIDTH) + (row * TILE_HEIGHT + y0) * PNG_WIDTH;
+        for (int x0 = 0; x0 < TILE_WIDTH; x0++) {
+            uint64_t value = src[x0] & 0xffU;
+            dst[scaledX[x0]] += (value * value) | 0x100000000U; // (gamma = 2.0, count = 1)
+        }
+        // interpolate skipped lines, if any
+        if (y1 >= 2 && scaledY[y0 - 1] == y1 - 2) {
+            for (int x1 = 0; x1 < tileWidth; x1++) {
+                dst[x1 - tileWidth] = dst[x1 - 2*tileWidth] + dst[x1];
+            }
         }
     }
     downscaled:
 
     // add floor dust (if the floor tile is blank)
-    if (row == 20 && column == 2 && isTileEmpty(row, column) && tileWidth > 2 && tileHeight > 2 && !optimizing) {
+    if (row == 20 && column == 2 && tileEmpty[row][column] && tileWidth > 2 && tileHeight > 2 && !optimizing) {
         int w = tileWidth - 2;
         int h = tileHeight - 2;
         uint64_t state = 1234567;
-        uint16_t idx[MAX_TILE_SIZE * MAX_TILE_SIZE];
+        uint32_t *idx = malloc(w * h * 4);
 
         // stitch edges together
-        for (int x = 0; x < w; x += 4) values[0][x] = noise(&state);
-        for (int y = 0; y < h; y += 4) values[y][0] = noise(&state);
-        for (int x = 2; x < w; x += 4) values[h+1][x] = noise(&state);
-        for (int y = 2; y < h; y += 4) values[y][w+1] = noise(&state);
+        for (int x = 0; x < w; x += 4) values[x] = noise(&state);
+        for (int y = 0; y < h; y += 4) values[y * tileWidth] = noise(&state);
+        for (int x = 2; x < w; x += 4) values[(h+1) * tileWidth + x] = noise(&state);
+        for (int y = 2; y < h; y += 4) values[y * tileWidth + (w+1)] = noise(&state);
 
         // fill center with isolated dots, randomly placed
         for (int i = 0; i < w * h; i++) idx[i] = i;             // array of indexes
@@ -253,21 +260,30 @@ static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, i
         for (int i = 0; i < w * h; i++) {
             int x = 1 + (idx[i] % w);
             int y = 1 + (idx[i] / w);
-            if (!values[y][x+1] && !values[y][x-1] && !values[y+1][x+1] && !values[y-1][x-1] &&
-                !values[y+1][x] && !values[y-1][x] & !values[y+1][x-1] && !values[y-1][x+1]) {
-                values[y][x] = noise(&state);
+            int p = x + y * tileWidth;
+            if (!values[p+1] &&
+                !values[p-1] &&
+                !values[p+tileWidth] &&
+                !values[p+tileWidth+1] &&
+                !values[p+tileWidth-1] &&
+                !values[p-tileWidth] &&
+                !values[p-tileWidth+1] &&
+                !values[p-tileWidth-1])
+            {
+                values[p] = noise(&state);
             }
         }
+        free(idx);
     }
 
     // add wall tops: diagonal sine waves
     if ((row == 16 && column == 2 || row == 21 && column == 1 || row == 22 && column == 4) && !optimizing) {
         for (int y = 0; y < tileHeight; y++) {
-            if (row != 21 && (y > tileHeight / 2 || (values[y][0] & 0xffffffffU))) break;
+            if (row != 21 && (y > tileHeight / 2 || (values[y * tileWidth] & 0xffffffffU))) break;
             for (int x = 0; x < tileWidth; x++) {
                 double value = sin(2. * PI * ((double)x / tileWidth * numHorizWaves
                                             + (double)y / tileHeight * numVertWaves)) / 2. + 0.5;
-                values[y][x] = (uint64_t)round(255 * 255 * value * value) | 0x100000000U;
+                values[y * tileWidth + x] = (uint64_t)round(255 * 255 * value * value) | 0x100000000U;
             }
         }
     }
@@ -277,7 +293,7 @@ static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, i
         Uint32 *pixel = surface->pixels; // each pixel is encoded as 0xAABBGGRR
         pixel += (column * tileWidth) + (row * tileHeight + y) * surface->w;
         for (int x = 0; x < tileWidth; x++) {
-            uint64_t value = values[y][x];
+            uint64_t value = values[y * tileWidth + x];
 
             // average light intensity (linear scale, 0 .. 255*255)
             value = ((value >> 32) ? (value & 0xffffffffU) / (value >> 32) : 0);
@@ -297,6 +313,7 @@ static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, i
         }
     }
 
+    free(values);
     return blur; // (used by the optimizer)
 }
 
@@ -419,31 +436,55 @@ static void init() {
 static void loadTiles(SDL_Renderer *renderer, int outputWidth, int outputHeight) {
     if (TilesPNG == NULL) init();
 
+    // choose tile size
+    int newBaseTileWidth = outputWidth / COLS;
+    int newBaseTileHeight = outputHeight / ROWS;
+    double tileAspectRatio = (double)(outputWidth * ROWS) / (outputHeight * COLS);
+    if (newBaseTileHeight >= MAX_TILE_SIZE) {
+        newBaseTileHeight = TILE_HEIGHT;
+        newBaseTileWidth = round(newBaseTileHeight * tileAspectRatio);
+    }
+    if (newBaseTileWidth >= MAX_TILE_SIZE) {
+        newBaseTileWidth = TILE_WIDTH;
+        newBaseTileHeight = round(newBaseTileWidth / tileAspectRatio);
+    }
+    if (newBaseTileWidth == 0) newBaseTileWidth = 1;
+    if (newBaseTileHeight == 0) newBaseTileHeight = 1;
+
+    // if tile size has not changed, we don't need to rebuild the tiles
+    if (baseTileWidth == newBaseTileWidth && baseTileHeight == newBaseTileHeight) {
+        return;
+    }
+
+    baseTileWidth = newBaseTileWidth;
+    baseTileHeight = newBaseTileHeight;
+
+    // destroy the old textures
+    for (int i = 0; i < 4; i++) {
+        if (Textures[i]) SDL_DestroyTexture(Textures[i]);
+        Textures[i] = NULL;
+    }
+
+    // choose the number of textures
+    if (baseTileWidth >= MAX_TILE_SIZE || baseTileHeight >= MAX_TILE_SIZE) {
+        numTextures = 1;
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+    } else {
+        numTextures = 4;
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+    }
+
     // The original image will be resized to 4 possible sizes:
     //  -  Textures[0]: tiles are  N    x  M    pixels
     //  -  Textures[1]: tiles are (N+1) x  M    pixels
     //  -  Textures[2]: tiles are  N    x (M+1) pixels
     //  -  Textures[3]: tiles are (N+1) x (M+1) pixels
-    // They will be NULL when either dimension is equal to 0.
 
-    // if tile size has not changed, we don't need to rebuild the tiles
-    if (baseTileWidth == outputWidth / COLS && baseTileHeight == outputHeight / ROWS) {
-        return;
-    }
-
-    baseTileWidth = outputWidth / COLS;
-    baseTileHeight = outputHeight / ROWS;
-
-    for (int i = 0; i < 4; i++) {
-
-        // destroy old textures
-        if (Textures[i]) SDL_DestroyTexture(Textures[i]);
-        Textures[i] = NULL;
+    for (int i = 0; i < numTextures; i++) {
 
         // choose dimensions
         int tileWidth = baseTileWidth + (i == 1 || i == 3 ? 1 : 0);
         int tileHeight = baseTileHeight + (i == 2 || i == 3 ? 1 : 0);
-        if (tileWidth == 0 || tileHeight == 0) continue;
         int surfaceWidth = 1, surfaceHeight = 1;
         while (surfaceWidth < tileWidth * TILE_COLS) surfaceWidth *= 2;
         while (surfaceHeight < tileHeight * TILE_ROWS) surfaceHeight *= 2;
@@ -491,34 +532,30 @@ void updateScreen() {
         if (!renderer) sdlfatal(__FILE__, __LINE__);
     }
 
-    int outputWidth = 0;
-    int outputHeight = 0;
+    int outputWidth, outputHeight;
     if (SDL_GetRendererOutputSize(renderer, &outputWidth, &outputHeight) < 0) sdlfatal(__FILE__, __LINE__);
+    if (outputWidth == 0 || outputHeight == 0) return;
+
     loadTiles(renderer, outputWidth, outputHeight);
+
     if (SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE) < 0) sdlfatal(__FILE__, __LINE__);
     if (SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) < 0) sdlfatal(__FILE__, __LINE__);
     if (SDL_RenderClear(renderer) < 0) sdlfatal(__FILE__, __LINE__);
 
     for (int y = 0; y < ROWS; y++) {
         for (int x = 0; x < COLS; x++) {
-            SDL_Rect src, dest;
+            SDL_Rect dest;
             ScreenTile *tile = &screenTiles[y][x];
             int tileRow = tile->charIndex / 16;
             int tileColumn = tile->charIndex % 16;
             int tileWidth = ((x+1) * outputWidth / COLS) - (x * outputWidth / COLS);
             int tileHeight = ((y+1) * outputHeight / ROWS) - (y * outputHeight / ROWS);
-            int textureIndex = (tileWidth > baseTileWidth ? 1 : 0) + (tileHeight > baseTileHeight ? 2 : 0);
             if (tileWidth == 0 || tileHeight == 0) continue;
 
             dest.x = x * outputWidth / COLS;
             dest.y = y * outputHeight / ROWS;
             dest.w = tileWidth;
             dest.h = tileHeight;
-
-            src.x = tileColumn * dest.w;
-            src.y = tileRow * dest.h;
-            src.w = tileWidth;
-            src.h = tileHeight;
 
             // paint the background
             if (tile->backRed || tile->backGreen || tile->backBlue) {
@@ -534,11 +571,30 @@ void updateScreen() {
                     || tileRow == 21 && tileColumn == 1  // wall top (procedural)
                     || tileRow == 20 && tileColumn == 2) // floor (possibly procedural)
             {
-                if (SDL_SetTextureColorMod(Textures[textureIndex],
+                SDL_Rect src;
+                SDL_Texture *texture;
+
+                if (numTextures == 4) {
+                    // use the appropriate downscaled texture, which the renderer can copy 1:1
+                    texture = Textures[(tileWidth > baseTileWidth ? 1 : 0) + (tileHeight > baseTileHeight ? 2 : 0)];
+                    src.x = tileColumn * tileWidth;
+                    src.y = tileRow * tileHeight;
+                    src.w = tileWidth;
+                    src.h = tileHeight;
+                } else {
+                    // use a single texture, let the renderer do the interpolation
+                    texture = Textures[0];
+                    src.x = tileColumn * baseTileWidth;
+                    src.y = tileRow * baseTileHeight;
+                    src.w = baseTileWidth;
+                    src.h = baseTileHeight;
+                }
+
+                if (SDL_SetTextureColorMod(texture,
                     round(2.55 * tile->foreRed),
                     round(2.55 * tile->foreGreen),
                     round(2.55 * tile->foreBlue)) < 0) sdlfatal(__FILE__, __LINE__);
-                if (SDL_RenderCopy(renderer, Textures[textureIndex], &src, &dest) < 0) sdlfatal(__FILE__, __LINE__);
+                if (SDL_RenderCopy(renderer, texture, &src, &dest) < 0) sdlfatal(__FILE__, __LINE__);
             }
         }
     }
@@ -555,15 +611,12 @@ void resizeWindow(int width, int height) {
     SDL_DisplayMode mode;
     if (SDL_GetCurrentDisplayMode(0, &mode) < 0) sdlfatal(__FILE__, __LINE__);
 
-    if (width < 0) width = mode.w * 7/10;  // 70% of monitor size by default
+    // 70% of monitor size by default
+    if (width < 0) width = mode.w * 7/10;
     if (height < 0) height = mode.h * 7/10;
-    if (width > MAX_TILE_SIZE * COLS) width = MAX_TILE_SIZE * COLS;  // this is large enough for 4K resolution
-    if (height > MAX_TILE_SIZE * ROWS) height = MAX_TILE_SIZE * ROWS;
-    if (width >= mode.w && height >= mode.h) {  // go to fullscreen mode if the window is as big as the screen
-        width = mode.w;
-        height = mode.h;
-        fullScreen = true;
-    }
+
+    // go to fullscreen mode if the window is as big as the screen
+    if (width >= mode.w && height >= mode.h) fullScreen = true;
 
     if (Win == NULL) {
         // create the window
