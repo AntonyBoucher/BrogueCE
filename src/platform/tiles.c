@@ -11,8 +11,8 @@
 #define TILE_HEIGHT   232   // height (px) of a single tile in the source PNG
 #define TILE_ROWS      24   // number of rows in the source PNG
 #define TILE_COLS      16   // number of columns in the source PNG
-#define TEXT_X_HEIGHT  96   // height (px) of the 'x' outline
-#define TEXT_BASELINE  47   // height (px) of the blank space below the 'x' outline
+#define TEXT_X_HEIGHT 100   // height (px) of the 'x' outline
+#define TEXT_BASELINE  46   // height (px) of the blank space below the 'x' outline
 #define MAX_TILE_SIZE  64   // maximum width or height (px) of screen tiles
 
 // How each tile should be processed:
@@ -178,7 +178,7 @@ static double prepareTile(SDL_Surface *surface, int tileWidth, int tileHeight, i
 
     // ... vertically:
 
-    if (processing == 't' || processing == '#') {
+    if (processing == 't') {
         stop4 = TILE_HEIGHT;
         stop3 = stop4 - TEXT_BASELINE;
         stop2 = stop3 - TEXT_X_HEIGHT;
