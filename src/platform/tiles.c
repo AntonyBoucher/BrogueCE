@@ -338,7 +338,7 @@ static void optimizeTiles() {
             baseTileHeight = MAX_TILE_SIZE;
             for (baseTileWidth = 5; baseTileWidth <= MAX_TILE_SIZE; baseTileWidth++) {
                 int8_t *shifts = tileShifts[row][column][0][baseTileWidth - 1];
-                SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, baseTileWidth * TILE_COLS, baseTileHeight * TILE_ROWS, 32, SDL_PIXELFORMAT_ABGR8888);
+                SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, baseTileWidth * TILE_COLS, baseTileHeight * TILE_ROWS, 32, SDL_PIXELFORMAT_ARGB8888);
                 if (!surface) sdlfatal(__FILE__, __LINE__);
 
                 for (int i = 0; i < 3; i++) {
@@ -371,7 +371,7 @@ static void optimizeTiles() {
             baseTileWidth = MAX_TILE_SIZE;
             for (baseTileHeight = 7; baseTileHeight <= MAX_TILE_SIZE; baseTileHeight++) {
                 int8_t *shifts = tileShifts[row][column][1][baseTileHeight - 1];
-                SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, baseTileWidth * TILE_COLS, baseTileHeight * TILE_ROWS, 32, SDL_PIXELFORMAT_ABGR8888);
+                SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, baseTileWidth * TILE_COLS, baseTileHeight * TILE_ROWS, 32, SDL_PIXELFORMAT_ARGB8888);
                 if (!surface) sdlfatal(__FILE__, __LINE__);
 
                 for (int i = 0; i < 3; i++) {
@@ -406,7 +406,7 @@ static void init() {
     sprintf(filename, "%s/assets/tiles.png", dataDirectory);
     SDL_Surface *image = IMG_Load(filename);
     if (!image) imgfatal(__FILE__, __LINE__);
-    TilesPNG = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_ABGR8888, 0);
+    TilesPNG = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_ARGB8888, 0);
     if (!TilesPNG) sdlfatal(__FILE__, __LINE__);
     SDL_FreeSurface(image);
 
@@ -490,7 +490,7 @@ static void loadTiles(SDL_Renderer *renderer, int outputWidth, int outputHeight)
         while (surfaceHeight < tileHeight * TILE_ROWS) surfaceHeight *= 2;
 
         // downscale the tiles
-        SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, surfaceWidth, surfaceHeight, 32, SDL_PIXELFORMAT_ABGR8888);
+        SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(0, surfaceWidth, surfaceHeight, 32, SDL_PIXELFORMAT_ARGB8888);
         if (!surface) sdlfatal(__FILE__, __LINE__);
         for (int row = 0; row < TILE_ROWS; row++) {
             for (int column = 0; column < TILE_COLS; column++) {
@@ -674,8 +674,8 @@ SDL_Surface *captureScreen() {
     if (outputWidth == 0 || outputHeight == 0) return NULL;
 
     // take a screenshot
-    SDL_Surface *screenshot = SDL_CreateRGBSurfaceWithFormat(0, outputWidth, outputHeight, 32, SDL_PIXELFORMAT_ABGR8888);
+    SDL_Surface *screenshot = SDL_CreateRGBSurfaceWithFormat(0, outputWidth, outputHeight, 32, SDL_PIXELFORMAT_ARGB8888);
     if (!screenshot) sdlfatal(__FILE__, __LINE__);
-    if (SDL_RenderReadPixels(renderer, NULL, SDL_PIXELFORMAT_ABGR8888, screenshot->pixels, outputWidth * 4) < 0) sdlfatal(__FILE__, __LINE__);
+    if (SDL_RenderReadPixels(renderer, NULL, SDL_PIXELFORMAT_ARGB8888, screenshot->pixels, outputWidth * 4) < 0) sdlfatal(__FILE__, __LINE__);
     return screenshot;
 }
