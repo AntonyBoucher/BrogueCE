@@ -542,59 +542,70 @@ void updateScreen() {
     if (SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0) < 0) sdlfatal(__FILE__, __LINE__);
     if (SDL_RenderClear(renderer) < 0) sdlfatal(__FILE__, __LINE__);
 
-    for (int y = 0; y < ROWS; y++) {
-        for (int x = 0; x < COLS; x++) {
-            SDL_Rect dest;
-            ScreenTile *tile = &screenTiles[y][x];
-            int tileRow = tile->charIndex / 16;
-            int tileColumn = tile->charIndex % 16;
-            int tileWidth = ((x+1) * outputWidth / COLS) - (x * outputWidth / COLS);
-            int tileHeight = ((y+1) * outputHeight / ROWS) - (y * outputHeight / ROWS);
-            if (tileWidth == 0 || tileHeight == 0) continue;
+    // To please the OpenGL renderer, we'll proceed in 5 steps:
+    //  -1. background colors
+    //  0.  Textures[0]
+    //  1.  Textures[1]
+    //  2.  Textures[2]
+    //  3.  Textures[3]
 
-            dest.x = x * outputWidth / COLS;
-            dest.y = y * outputHeight / ROWS;
-            dest.w = tileWidth;
-            dest.h = tileHeight;
+    for (int step = -1; step < numTextures; step++) {
+        for (int y = 0; y < ROWS; y++) {
+            for (int x = 0; x < COLS; x++) {
+                SDL_Rect dest;
+                ScreenTile *tile = &screenTiles[y][x];
+                int tileRow = tile->charIndex / 16;
+                int tileColumn = tile->charIndex % 16;
+                int tileWidth = ((x+1) * outputWidth / COLS) - (x * outputWidth / COLS);
+                int tileHeight = ((y+1) * outputHeight / ROWS) - (y * outputHeight / ROWS);
+                if (tileWidth == 0 || tileHeight == 0) continue;
 
-            // paint the background
-            if (tile->backRed || tile->backGreen || tile->backBlue) {
-                if (SDL_SetRenderDrawColor(renderer,
-                    round(2.55 * tile->backRed),
-                    round(2.55 * tile->backGreen),
-                    round(2.55 * tile->backBlue), 255) < 0) sdlfatal(__FILE__, __LINE__);
-                if (SDL_RenderFillRect(renderer, &dest) < 0) sdlfatal(__FILE__, __LINE__);
-            }
+                dest.x = x * outputWidth / COLS;
+                dest.y = y * outputHeight / ROWS;
+                dest.w = tileWidth;
+                dest.h = tileHeight;
 
-            // blend the foreground
-            if (!tileEmpty[tileRow][tileColumn]
-                    || tileRow == 21 && tileColumn == 1  // wall top (procedural)
-                    || tileRow == 20 && tileColumn == 2) // floor (possibly procedural)
-            {
-                SDL_Rect src;
-                SDL_Texture *texture;
-
-                if (numTextures == 4) {
-                    // use the appropriate downscaled texture, which the renderer can copy 1:1
-                    texture = Textures[(tileWidth > baseTileWidth ? 1 : 0) + (tileHeight > baseTileHeight ? 2 : 0)];
-                    src.x = tileColumn * tileWidth;
-                    src.y = tileRow * tileHeight;
-                    src.w = tileWidth;
-                    src.h = tileHeight;
-                } else {
-                    // use a single texture, let the renderer do the interpolation
-                    texture = Textures[0];
-                    src.x = tileColumn * baseTileWidth;
-                    src.y = tileRow * baseTileHeight;
-                    src.w = baseTileWidth;
-                    src.h = baseTileHeight;
+                // paint the background
+                if (step == -1 && (tile->backRed || tile->backGreen || tile->backBlue)) {
+                    if (SDL_SetRenderDrawColor(renderer,
+                        round(2.55 * tile->backRed),
+                        round(2.55 * tile->backGreen),
+                        round(2.55 * tile->backBlue), 255) < 0) sdlfatal(__FILE__, __LINE__);
+                    if (SDL_RenderFillRect(renderer, &dest) < 0) sdlfatal(__FILE__, __LINE__);
                 }
 
-                if (SDL_SetTextureColorMod(texture,
-                    round(2.55 * tile->foreRed),
-                    round(2.55 * tile->foreGreen),
-                    round(2.55 * tile->foreBlue)) < 0) sdlfatal(__FILE__, __LINE__);
-                if (SDL_RenderCopy(renderer, texture, &src, &dest) < 0) sdlfatal(__FILE__, __LINE__);
+                // blend the foreground
+                if (step >= 0 && (!tileEmpty[tileRow][tileColumn]
+                        || tileRow == 21 && tileColumn == 1   // wall top (procedural)
+                        || tileRow == 20 && tileColumn == 2)) // floor (possibly procedural)
+                {
+                    SDL_Rect src;
+                    SDL_Texture *texture;
+
+                    if (numTextures == 4) {
+                        // use the appropriate downscaled texture, which the renderer can copy 1:1
+                        texture = Textures[(tileWidth > baseTileWidth ? 1 : 0) + (tileHeight > baseTileHeight ? 2 : 0)];
+                        src.x = tileColumn * tileWidth;
+                        src.y = tileRow * tileHeight;
+                        src.w = tileWidth;
+                        src.h = tileHeight;
+                    } else {
+                        // use a single texture, let the renderer do the interpolation
+                        texture = Textures[0];
+                        src.x = tileColumn * baseTileWidth;
+                        src.y = tileRow * baseTileHeight;
+                        src.w = baseTileWidth;
+                        src.h = baseTileHeight;
+                    }
+
+                    if (texture == Textures[step]) {
+                        if (SDL_SetTextureColorMod(texture,
+                            round(2.55 * tile->foreRed),
+                            round(2.55 * tile->foreGreen),
+                            round(2.55 * tile->foreBlue)) < 0) sdlfatal(__FILE__, __LINE__);
+                        if (SDL_RenderCopy(renderer, texture, &src, &dest) < 0) sdlfatal(__FILE__, __LINE__);
+                    }
+                }
             }
         }
     }
