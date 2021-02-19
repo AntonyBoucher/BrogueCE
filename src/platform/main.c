@@ -2,6 +2,11 @@
 #include <limits.h>
 #include "platform.h"
 
+#ifndef DATADIR
+#define DATADIR .
+#warning "The DATADIR macro is undefined. Defaulting to '.'"
+#endif
+
 // Expanding a macro as a string constant requires two levels of macros
 #define _str(x)  #x
 #define STRINGIFY(x)  _str(x)

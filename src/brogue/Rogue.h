@@ -28,6 +28,10 @@
 #include <time.h>
 #include "PlatformDefines.h"
 
+#ifndef BROGUE_EXTRA_VERSION
+#define BROGUE_EXTRA_VERSION ""
+#endif
+
 // unicode: comment this line to revert to ASCII
 
 #define USE_UNICODE
