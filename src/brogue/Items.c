@@ -3333,64 +3333,111 @@ void aggravateMonsters(short distance, short x, short y, const color *flashColor
     freeGrid(grid);
 }
 
-// Simple line algorithm (maybe this is Bresenham?) that returns a list of coordinates
-// that extends all the way to the edge of the map based on an originLoc (which is not included
-// in the list of coordinates) and a targetLoc.
-// Returns the number of entries in the list, and includes (-1, -1) as an additional
-// terminus indicator after the end of the list.
+// Generates a list of coordinates extending in a straight line
+// from originLoc (not included in the output), through targetLoc,
+// all the way to the edge of the map.
+// If the line from the center of origin to the center of target is
+// obstructed by walls or creatures, the function tries to find an
+// unobstructed straight line to some other point within the target cell.
+// The list is terminated by a marker (-1, -1).
+// Returns the number of entries in the list (not counting the terminal marker).
 short getLineCoordinates(short listOfCoordinates[][2], const short originLoc[2], const short targetLoc[2]) {
-    fixpt targetVector[2], error[2], largerTargetComponent;
-    short currentVector[2], previousVector[2], quadrantTransform[2], i;
-    short currentLoc[2];
-    short cellNumber = 0;
+    fixpt point[2], step[2];
+    short listLength, numStepsToTarget;
+
+    const fixpt offsets[14][2] = {
+        { FP_FACTOR * 1/2,   FP_FACTOR * 1/2 }, // center of cell first
+        { FP_FACTOR * 1/3,   FP_FACTOR * 1/3 }, // then points in quincunx
+        { FP_FACTOR * 1/3,   FP_FACTOR * 2/3 },
+        { FP_FACTOR * 2/3,   FP_FACTOR * 1/3 },
+        { FP_FACTOR * 2/3,   FP_FACTOR * 2/3 },
+        { FP_FACTOR * 1/2,   FP_FACTOR * 1/6 }, // then more off center
+        { FP_FACTOR * 1/2,   FP_FACTOR * 5/6 },
+        { FP_FACTOR * 1/6,   FP_FACTOR * 1/2 },
+        { FP_FACTOR * 5/6,   FP_FACTOR * 1/2 },
+        { FP_FACTOR * 1/64,  FP_FACTOR * 1/64 }, // then close to corners
+        { FP_FACTOR * 1/64,  FP_FACTOR * 63/64 },
+        { FP_FACTOR * 63/64, FP_FACTOR * 1/64 },
+        { FP_FACTOR * 63/64, FP_FACTOR * 63/64 },
+        { FP_FACTOR * 1/2,   FP_FACTOR * 1/2 }  // ... and back to center
+    };
 
     if (originLoc[0] == targetLoc[0] && originLoc[1] == targetLoc[1]) {
+        listOfCoordinates[0][0] = listOfCoordinates[0][1] = -1;
         return 0;
     }
 
-    // Neither vector is negative. We keep track of negatives with quadrantTransform.
-    for (i=0; i<= 1; i++) {
-        targetVector[i] = (targetLoc[i] - originLoc[i]) * FP_FACTOR;
-        if (targetVector[i] < 0) {
-            targetVector[i] *= -1;
-            quadrantTransform[i] = -1;
-        } else {
-            quadrantTransform[i] = 1;
+    numStepsToTarget = max(abs(targetLoc[0] - originLoc[0]), abs(targetLoc[1] - originLoc[1]));
+
+    // We will try several possible positions within the target cell,
+    // until we find a straight line that doesn't hit a wall or monster. If none is clear,
+    // the last iteration will take us back to the straight line between cells' centers.
+    for (int iteration = 0; iteration < 14; iteration++) {
+
+        listLength = 0;
+
+        for (int i = 0; i <= 1; i++) {
+            // always start at the center of the origin cell,
+            // otherwise we could shoot along walls from under cover!
+            point[i] = originLoc[i] * FP_FACTOR + FP_FACTOR/2;
+            // vector to target
+            step[i] = targetLoc[i] * FP_FACTOR + offsets[iteration][i] - point[i];
+            // normalize it to take us there one row or column at a time
+            step[i] /= numStepsToTarget;
         }
-        currentVector[i] = previousVector[i] = error[i] = 0;
-        currentLoc[i] = originLoc[i];
+
+        // move step by step toward the target
+        for (int s = 0; s < numStepsToTarget; s++) {
+            for (int i = 0; i <= 1; i++) {
+                point[i] += step[i];
+                listOfCoordinates[listLength][i] = point[i] / FP_FACTOR;
+            }
+            listLength++;
+        }
+
+        // normalize the step again, to move by exactly one row or column now
+        fixpt m = max(abs(step[0]), abs(step[1]));
+        step[0] = step[0] * FP_FACTOR / m;
+        step[1] = step[1] * FP_FACTOR / m;
+
+        // move until we exit the map
+        while (true) {
+            for (int i = 0; i <= 1; i++) {
+                point[i] += step[i];
+                listOfCoordinates[listLength][i] = (point[i] < 0 ? -1 : point[i] / FP_FACTOR);
+            }
+            if (!coordinatesAreInMap(listOfCoordinates[listLength][0], listOfCoordinates[listLength][1])) break;
+            listLength++;
+        };
+
+        // would an arrow reach targetLoc?
+        boolean reachesTarget = true;
+        for (int i = 0; i < listLength; i++) {
+            short x = listOfCoordinates[i][0], y = listOfCoordinates[i][1];
+            if (x == targetLoc[0] && y == targetLoc[1]) {
+                break; // yes!
+            }
+            if (cellHasTerrainFlag(x, y, (T_OBSTRUCTS_VISION | T_OBSTRUCTS_PASSABILITY))) {
+                reachesTarget = false; // hits a wall first
+                break;
+            }
+            creature *monst = monsterAtLoc(x, y);
+            if (monst
+                && !(monst->bookkeepingFlags & MB_SUBMERGED)
+                && !monsterIsHidden(monst, monsterAtLoc(originLoc[0], originLoc[1]))) {
+                reachesTarget = false; // hits a creature
+                break;
+            }
+        }
+
+        // if this trajectory is not blocked, no need to try another one
+        if (reachesTarget) break;
     }
 
-    // normalize target vector such that one dimension equals 1 and the other is in [0, 1].
-    largerTargetComponent = max(targetVector[0], targetVector[1]);
-    targetVector[0] = (targetVector[0] * FP_FACTOR) / largerTargetComponent;
-    targetVector[1] = (targetVector[1] * FP_FACTOR) / largerTargetComponent;
+    // demarcate the end of the list
+    listOfCoordinates[listLength][0] = listOfCoordinates[listLength][1] = -1;
 
-    do {
-        for (i=0; i<= 1; i++) {
-
-            currentVector[i] += targetVector[i] / FP_FACTOR;
-            error[i] += (targetVector[i] == FP_FACTOR ? 0 : targetVector[i]);
-
-            if (error[i] >= FP_FACTOR / 2) {
-                currentVector[i]++;
-                error[i] -= FP_FACTOR;
-            }
-
-            currentLoc[i] = quadrantTransform[i]*currentVector[i] + originLoc[i];
-
-            listOfCoordinates[cellNumber][i] = currentLoc[i];
-        }
-
-        //DEBUG printf("\ncell %i: (%i, %i)", cellNumber, listOfCoordinates[cellNumber][0], listOfCoordinates[cellNumber][1]);
-        cellNumber++;
-
-    } while (coordinatesAreInMap(currentLoc[0], currentLoc[1]));
-
-    cellNumber--;
-
-    listOfCoordinates[cellNumber][0] = listOfCoordinates[cellNumber][1] = -1; // demarcates the end of the list
-    return cellNumber;
+    return listLength;
 }
 
 // If a hypothetical bolt were launched from originLoc toward targetLoc,
